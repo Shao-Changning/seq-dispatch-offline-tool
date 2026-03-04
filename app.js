@@ -2178,7 +2178,7 @@
     ]);
 
     const dataStartRow = headerRowIndex + 2;
-    const existingLast = getLastDataRowInWorksheet(sheet, dataStartRow, colMap);
+    const existingLast = ensureWorksheetDataCapacity(sheet, dataStartRow, colMap, group.rows.length);
     clearWorksheetData(sheet, dataStartRow, existingLast, colMap);
 
     writeRowsToWorksheet(sheet, dataStartRow, colMap, group.rows, (field, row) => {
@@ -2206,7 +2206,6 @@
     });
 
     const newLast = dataStartRow + group.rows.length - 1;
-    trimWorksheetRows(sheet, Math.max(headerRowIndex + 1, existingLast, newLast));
     const keepLast = Math.max(headerRowIndex + 1, existingLast, newLast);
     setWorksheetPrintArea(sheet, 1, keepLast, [colMap]);
   }
@@ -2242,7 +2241,7 @@
     ]);
 
     const dataStartRow = headerRowIndex + 2;
-    const existingLast = getLastDataRowInWorksheet(sheet, dataStartRow, colMap);
+    const existingLast = ensureWorksheetDataCapacity(sheet, dataStartRow, colMap, group.rows.length);
     clearWorksheetData(sheet, dataStartRow, existingLast, colMap);
 
     writeRowsToWorksheet(sheet, dataStartRow, colMap, group.rows, (field, row) => {
@@ -2265,7 +2264,6 @@
     });
 
     const newLast = dataStartRow + group.rows.length - 1;
-    trimWorksheetRows(sheet, Math.max(headerRowIndex + 1, existingLast, newLast));
     const keepLast = Math.max(headerRowIndex + 1, existingLast, newLast);
     setWorksheetPrintArea(sheet, 1, keepLast, [colMap]);
   }
@@ -2312,8 +2310,8 @@
 
     const startRow1 = headerRowIndex1 + 1;
     const startRow2 = headerRowIndex2 + 1;
-    const existingLast1 = getLastDataRowInWorksheet(sheet1, startRow1, colMap1);
-    const existingLast2 = getLastDataRowInWorksheet(sheet2, startRow2, colMap2);
+    const existingLast1 = ensureWorksheetDataCapacity(sheet1, startRow1, colMap1, group.rows.length);
+    const existingLast2 = ensureWorksheetDataCapacity(sheet2, startRow2, colMap2, group.rows.length);
     clearWorksheetData(sheet1, startRow1, existingLast1, colMap1);
     clearWorksheetData(sheet2, startRow2, existingLast2, colMap2);
 
@@ -2351,8 +2349,6 @@
 
     const newLast1 = startRow1 + group.rows.length - 1;
     const newLast2 = startRow2 + group.rows.length - 1;
-    trimWorksheetRows(sheet1, Math.max(headerRowIndex1, existingLast1, newLast1));
-    trimWorksheetRows(sheet2, Math.max(headerRowIndex2, existingLast2, newLast2));
     const keepLast1 = Math.max(headerRowIndex1, existingLast1, newLast1);
     const keepLast2 = Math.max(headerRowIndex2, existingLast2, newLast2);
     setWorksheetPrintArea(sheet1, 1, keepLast1, [colMap1]);
@@ -2400,10 +2396,23 @@
     }
     refineMingmaIndexColumns(sheet2, headerRowIndex2, colMap2);
 
+    const atacRows = [];
+    group.rows.forEach((row) => {
+      const code = normalizeIndexCode(row.indexCode);
+      const seqs = state.indexKit[code] || ['', '', '', ''];
+      seqs.forEach((seq, idx) => {
+        atacRows.push({
+          base: row,
+          subName: `${row.sendLibId || ''}-${idx + 1}`,
+          indexI7: seq
+        });
+      });
+    });
+
     const startRow1 = headerRowIndex1 + 1;
     const startRow2 = headerRowIndex2 + 1;
-    const existingLast1 = getLastDataRowInWorksheet(sheet1, startRow1, colMap1);
-    const existingLast2 = getLastDataRowInWorksheet(sheet2, startRow2, colMap2);
+    const existingLast1 = ensureWorksheetDataCapacity(sheet1, startRow1, colMap1, group.rows.length);
+    const existingLast2 = ensureWorksheetDataCapacity(sheet2, startRow2, colMap2, atacRows.length);
     clearWorksheetData(sheet1, startRow1, existingLast1, colMap1);
     clearWorksheetData(sheet2, startRow2, existingLast2, colMap2);
 
@@ -2427,19 +2436,6 @@
       }
     });
 
-    const atacRows = [];
-    group.rows.forEach((row) => {
-      const code = normalizeIndexCode(row.indexCode);
-      const seqs = state.indexKit[code] || ['', '', '', ''];
-      seqs.forEach((seq, idx) => {
-        atacRows.push({
-          base: row,
-          subName: `${row.sendLibId || ''}-${idx + 1}`,
-          indexI7: seq
-        });
-      });
-    });
-
     writeRowsToWorksheet(sheet2, headerRowIndex2 + 1, colMap2, atacRows, (field, item) => {
       const row = item.base;
       const mapped = buildMappedValues(row, getRule(group.vendor, group.platform, row.libType) || {}, group);
@@ -2456,8 +2452,6 @@
 
     const newLast1 = startRow1 + group.rows.length - 1;
     const newLast2 = startRow2 + atacRows.length - 1;
-    trimWorksheetRows(sheet1, Math.max(headerRowIndex1, existingLast1, newLast1));
-    trimWorksheetRows(sheet2, Math.max(headerRowIndex2, existingLast2, newLast2));
     const keepLast1 = Math.max(headerRowIndex1, existingLast1, newLast1);
     const keepLast2 = Math.max(headerRowIndex2, existingLast2, newLast2);
     setWorksheetPrintArea(sheet1, 1, keepLast1, [colMap1]);
@@ -2815,6 +2809,25 @@
       });
       if (row.commit) row.commit();
     }
+  }
+
+  function ensureWorksheetDataCapacity(worksheet, startRow, colMap, desiredCount) {
+    if (!worksheet || !startRow || desiredCount <= 0) return startRow - 1;
+    let existingLast = getLastDataRowInWorksheet(worksheet, startRow, colMap);
+    const available = existingLast >= startRow ? (existingLast - startRow + 1) : 0;
+    if (desiredCount <= available) return existingLast;
+
+    const extra = desiredCount - available;
+    const templateRow = available > 0 ? existingLast : startRow;
+    if (templateRow >= 1 && templateRow <= worksheet.rowCount) {
+      worksheet.duplicateRow(templateRow, extra, true);
+    } else {
+      for (let i = 0; i < extra; i += 1) {
+        worksheet.insertRow(startRow + i, []);
+      }
+    }
+    existingLast += extra;
+    return existingLast;
   }
 
   function getLastDataRowInWorksheet(worksheet, startRow, colMap, endRow) {
