@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>外送送测单 → 测序工厂收样单</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">外送送测单 → 测序工厂收样单</p>
+        <h1>烈冰送测单一键拆分与导出</h1>
+        <p class="subtitle">拖入当天所有 CXPS 送测单，自动按测序机构 × 平台 × 送样地点分组，生成对应工厂收样单与可复制邮件正文。</p>
+      </div>
+      <div class="hero-badge">
+        <div>
+          <strong>本地解析</strong>
+          <span>数据不离开浏览器</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="panel grid">
+      <div class="card upload-card">
+        <div class="card-header">
+          <h2>导入烈冰送测单</h2>
+          <p>支持一次拖入多份 Excel，自动合并。</p>
+        </div>
+        <div id="dropZone" class="drop-zone">
+          <input id="dispatchInput" type="file" accept=".xlsx,.xls" multiple />
+          <div>
+            <strong>拖拽或点击选择文件</strong>
+            <span>支持 CXPS-xxxx-… 多文件</span>
+          </div>
+        </div>
+        <div id="dispatchList" class="file-list"></div>
+      </div>
+
+      <div class="card settings-card">
+        <div class="card-header">
+          <h2>全局设置</h2>
+          <p>默认日期、送样地点与模板资源管理。</p>
+        </div>
+        <div class="field">
+          <label for="sendDateInput">默认送测日期</label>
+          <input id="sendDateInput" type="date" />
+          <div class="helper">默认取本地当天，可手动改。</div>
+        </div>
+        <div class="field">
+          <label for="labSiteSelect">送样地点</label>
+          <div class="inline">
+            <select id="labSiteSelect">
+              <option value="auto">自动识别</option>
+              <option value="上海">上海</option>
+              <option value="上饶">上饶</option>
+              <option value="custom">自定义</option>
+            </select>
+            <input id="labSiteCustom" type="text" placeholder="输入地点" disabled />
+          </div>
+        </div>
+        <div class="field">
+          <label>模板加载状态</label>
+          <div id="templateStatus" class="template-status"></div>
+        </div>
+        <div class="field">
+          <label>自动匹配模板文件</label>
+          <div id="templateDropZone" class="drop-zone template-drop">
+            <input id="templateAutoInput" type="file" accept=".xlsx,.xls" multiple />
+            <div>
+              <strong>拖拽模板文件到这里</strong>
+              <span>按文件名自动匹配工厂模板</span>
+            </div>
+          </div>
+          <div class="template-actions">
+            <label class="ghost-button">选择模板文件（多选）
+              <input id="templateAutoSelect" type="file" accept=".xlsx,.xls" multiple hidden />
+            </label>
+            <label class="ghost-button">选择模板文件夹
+              <input id="templateFolderSelect" type="file" webkitdirectory hidden />
+            </label>
+          </div>
+          <div class="helper">匹配规则支持：格致博雅 / 海普洛斯(BGI、Nova) / 明码 / 明码(ATAC) / ATAC Index Kit。</div>
+        </div>
+        <details class="template-upload">
+          <summary>上传/替换模板文件</summary>
+          <div class="template-grid">
+            <label>格致博雅</label>
+            <input id="tpl-gzb" type="file" accept=".xlsx,.xls" />
+            <label>海普洛斯(BGI)</label>
+            <input id="tpl-hplos-bgi" type="file" accept=".xlsx,.xls" />
+            <label>海普洛斯(Nova)</label>
+            <input id="tpl-hplos-nova" type="file" accept=".xlsx,.xls" />
+            <label>明码(通用)</label>
+            <input id="tpl-mingma" type="file" accept=".xlsx,.xls" />
+            <label>明码(ATAC)</label>
+            <input id="tpl-mingma-atac" type="file" accept=".xlsx,.xls" />
+            <label>ATAC Index Kit</label>
+            <input id="tpl-index-kit" type="file" accept=".xlsx,.xls" />
+          </div>
+        </details>
+        <div class="tips">
+          <strong>提示</strong>
+          <span>若内置模板加载失败，请在此处上传替换。</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>分组与处理</h2>
+          <p>按测序机构 × 平台 × 送样地点自动拆分。</p>
+        </div>
+        <div class="actions">
+          <button id="downloadAllBtn" class="primary">下载全部 Excel</button>
+          <button id="copyAllMailBtn">复制全部邮件正文</button>
+          <button id="exportRulesBtn">导出规则 JSON</button>
+          <label class="ghost-button">导入规则 JSON
+            <input id="importRulesInput" type="file" accept=".json" hidden />
+          </label>
+        </div>
+      </div>
+      <div id="groupTabs" class="tabs"></div>
+      <div id="groupPanels" class="tab-panels"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/exceljs.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
