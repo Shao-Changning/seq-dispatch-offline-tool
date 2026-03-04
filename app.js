@@ -1069,6 +1069,8 @@
   function buildGroupActions(group) {
     const wrapper = document.createElement('div');
     wrapper.className = 'group-actions';
+    const actionRow = document.createElement('div');
+    actionRow.className = 'group-actions-row';
 
     const downloadBtn = document.createElement('button');
     downloadBtn.textContent = '生成并下载该组 Excel';
@@ -1079,8 +1081,24 @@
     copyBtn.textContent = '复制邮件正文';
     copyBtn.addEventListener('click', () => copyEmail(group));
 
-    wrapper.appendChild(downloadBtn);
-    wrapper.appendChild(copyBtn);
+    const preview = document.createElement('div');
+    preview.className = 'email-preview';
+
+    const title = document.createElement('div');
+    title.className = 'email-preview-title';
+    title.textContent = '邮件正文预览';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'email-preview-text';
+    textarea.readOnly = true;
+    textarea.value = buildEmailContent(group);
+
+    actionRow.appendChild(downloadBtn);
+    actionRow.appendChild(copyBtn);
+    preview.appendChild(title);
+    preview.appendChild(textarea);
+    wrapper.appendChild(actionRow);
+    wrapper.appendChild(preview);
     return wrapper;
   }
 

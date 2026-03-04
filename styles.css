@@ -542,8 +542,42 @@ button.primary {
 .group-actions {
   margin-top: 16px;
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.group-actions-row {
+  display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.email-preview {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(31, 111, 92, 0.16);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.email-preview-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin-bottom: 8px;
+}
+
+.email-preview-text {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  border: 1px solid rgba(31, 111, 92, 0.2);
+  border-radius: 10px;
+  background: #fcfaf6;
+  color: var(--text);
+  padding: 10px;
+  line-height: 1.6;
+  font-size: 13px;
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 .toast {
