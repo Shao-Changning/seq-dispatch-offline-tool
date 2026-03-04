@@ -7,6 +7,13 @@
     mingmaAtac: '模板文件/ATAC-明码.xlsx',
     indexKit: '模板文件/Single_Index_Kit_N_Set_A(ATAC).xlsx'
   };
+  const LOCAL_RULES_KEY = 'dispatchRulesLocal';
+  const LEGACY_RULES_KEY = 'dispatchRules';
+  const SHARED_RULES_FILE = 'shared-rules.json';
+  const SHARED_RULES_FALLBACK_URLS = [
+    'https://raw.githubusercontent.com/Shao-Changning/seq-dispatch-offline-tool/main/shared-rules.json',
+    'https://gitee.com/shao-changning/seq-dispatch-offline-tool/raw/main/shared-rules.json'
+  ];
 
   const RULE_FIELDS = [
     { key: 'vendorLibType', label: '文库类型(工厂)' },
@@ -97,7 +104,9 @@
     dispatches: [],
     rows: [],
     groups: [],
-    rules: loadRules(),
+    rules: {},
+    sharedRules: {},
+    localRules: {},
     templateBuffers: {},
     indexKit: {},
     ui: {
@@ -174,6 +183,7 @@
     elements.exportRulesBtn.addEventListener('click', exportRulesJson);
     elements.importRulesInput.addEventListener('change', handleImportRules);
 
+    await hydrateRules();
     await loadTemplatesFromCache();
     await loadTemplates();
     renderTemplateStatus();
@@ -1192,7 +1202,8 @@
 
   function setRule(rule) {
     const key = buildRuleKey(rule.vendor, rule.platform, rule.internalLibType);
-    state.rules[key] = rule;
+    state.localRules[key] = rule;
+    mergeRules();
     saveRules();
   }
 
@@ -1200,11 +1211,54 @@
     return `${vendor}|${platform}|${internalLibType}`;
   }
 
-  function loadRules() {
+  async function hydrateRules() {
+    state.localRules = loadLocalRules();
+    state.sharedRules = await loadSharedRules();
+    mergeRules();
+  }
+
+  function mergeRules() {
+    state.rules = {
+      ...(state.sharedRules || {}),
+      ...(state.localRules || {})
+    };
+  }
+
+  function loadLocalRules() {
+    const raw = localStorage.getItem(LOCAL_RULES_KEY) || localStorage.getItem(LEGACY_RULES_KEY);
+    return parseRulesToMap(raw);
+  }
+
+  async function loadSharedRules() {
+    const urls = getSharedRuleUrls();
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) continue;
+        const parsed = await response.json();
+        return parseRulesToMap(parsed);
+      } catch (err) {
+        // Ignore single source failure and keep trying fallbacks.
+      }
+    }
+    return {};
+  }
+
+  function getSharedRuleUrls() {
+    const urls = [];
+    if (window.location && /^https?:/.test(window.location.protocol)) {
+      const pathname = window.location.pathname || '/';
+      const basePath = pathname.endsWith('/') ? pathname : pathname.replace(/[^/]*$/, '');
+      urls.push(`${window.location.origin}${basePath}${SHARED_RULES_FILE}`);
+    }
+    SHARED_RULES_FALLBACK_URLS.forEach((url) => urls.push(url));
+    return Array.from(new Set(urls));
+  }
+
+  function parseRulesToMap(rawOrParsed) {
     try {
-      const raw = localStorage.getItem('dispatchRules');
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
+      if (!rawOrParsed) return {};
+      const parsed = typeof rawOrParsed === 'string' ? JSON.parse(rawOrParsed) : rawOrParsed;
       if (Array.isArray(parsed)) {
         const map = {};
         parsed.forEach((rule) => {
@@ -1221,14 +1275,16 @@
   }
 
   function saveRules() {
-    const list = Object.values(state.rules);
-    localStorage.setItem('dispatchRules', JSON.stringify(list, null, 2));
+    const list = Object.values(state.localRules || {});
+    const json = JSON.stringify(list, null, 2);
+    localStorage.setItem(LOCAL_RULES_KEY, json);
+    localStorage.setItem(LEGACY_RULES_KEY, json);
   }
 
   function exportRulesJson() {
     const list = Object.values(state.rules);
     const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
-    downloadBlob(blob, `rules-${Date.now()}.json`);
+    downloadBlob(blob, SHARED_RULES_FILE);
   }
 
   async function handleImportRules(event) {
@@ -1240,12 +1296,13 @@
       const list = Array.isArray(parsed) ? parsed : Object.values(parsed);
       list.forEach((rule) => {
         if (rule.vendor && rule.platform && rule.internalLibType) {
-          state.rules[buildRuleKey(rule.vendor, rule.platform, rule.internalLibType)] = rule;
+          state.localRules[buildRuleKey(rule.vendor, rule.platform, rule.internalLibType)] = rule;
         }
       });
+      mergeRules();
       saveRules();
       renderGroups();
-      toast('规则已导入');
+      toast('规则已导入（当前浏览器）');
     } catch (err) {
       toast('规则 JSON 解析失败');
     }
