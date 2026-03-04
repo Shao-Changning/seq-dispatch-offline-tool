@@ -14,6 +14,8 @@
     'https://raw.githubusercontent.com/Shao-Changning/seq-dispatch-offline-tool/main/shared-rules.json',
     'https://gitee.com/shao-changning/seq-dispatch-offline-tool/raw/main/shared-rules.json'
   ];
+  const RULE_EDIT_PASSWORD = 'novelbio';
+  const RULE_EDIT_UNLOCK_KEY = 'ruleEditUnlocked';
 
   const RULE_FIELDS = [
     { key: 'vendorLibType', label: '文库类型(工厂)' },
@@ -112,7 +114,8 @@
     ui: {
       date: '',
       labSiteMode: 'auto',
-      labSiteCustom: ''
+      labSiteCustom: '',
+      ruleEditUnlocked: false
     }
   };
 
@@ -149,6 +152,7 @@
     const today = new Date();
     state.ui.date = formatDateInput(today);
     elements.sendDateInput.value = state.ui.date;
+    state.ui.ruleEditUnlocked = sessionStorage.getItem(RULE_EDIT_UNLOCK_KEY) === '1';
 
     elements.sendDateInput.addEventListener('change', () => {
       state.ui.date = elements.sendDateInput.value;
@@ -948,7 +952,7 @@
       fieldSet.forEach((field) => {
         if (inputs[field.key]) rule[field.key] = inputs[field.key].value.trim();
       });
-      setRule(rule);
+      if (!setRule(rule)) return;
       renderGroups();
       toast('规则已保存');
     });
@@ -961,7 +965,7 @@
       const newType = prompt('请输入新的内部文库类型');
       if (!newType) return;
       const current = getRule(group.vendor, group.platform, type) || {};
-      setRule({ ...current, vendor: group.vendor, platform: group.platform, internalLibType: newType });
+      if (!setRule({ ...current, vendor: group.vendor, platform: group.platform, internalLibType: newType })) return;
       renderGroups();
       toast('规则已复制');
     });
@@ -1200,11 +1204,27 @@
     return state.rules[key] || null;
   }
 
-  function setRule(rule) {
+  function ensureRuleEditAuthorized() {
+    if (state.ui.ruleEditUnlocked) return true;
+    const input = window.prompt('请输入规则修改密码');
+    if (input === null) return false;
+    if (String(input).trim() !== RULE_EDIT_PASSWORD) {
+      toast('密码错误，无法修改规则');
+      return false;
+    }
+    state.ui.ruleEditUnlocked = true;
+    sessionStorage.setItem(RULE_EDIT_UNLOCK_KEY, '1');
+    toast('规则修改已解锁');
+    return true;
+  }
+
+  function setRule(rule, options = {}) {
+    if (!options.skipAuth && !ensureRuleEditAuthorized()) return false;
     const key = buildRuleKey(rule.vendor, rule.platform, rule.internalLibType);
     state.localRules[key] = rule;
     mergeRules();
     saveRules();
+    return true;
   }
 
   function buildRuleKey(vendor, platform, internalLibType) {
@@ -1290,6 +1310,10 @@
   async function handleImportRules(event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
+    if (!ensureRuleEditAuthorized()) {
+      event.target.value = '';
+      return;
+    }
     const text = await file.text();
     try {
       const parsed = JSON.parse(text);
@@ -1305,6 +1329,8 @@
       toast('规则已导入（当前浏览器）');
     } catch (err) {
       toast('规则 JSON 解析失败');
+    } finally {
+      event.target.value = '';
     }
   }
 
