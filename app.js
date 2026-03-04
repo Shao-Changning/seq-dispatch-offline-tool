@@ -16,6 +16,11 @@
   ];
   const RULE_EDIT_PASSWORD = 'novelbio';
   const RULE_EDIT_UNLOCK_KEY = 'ruleEditUnlocked';
+  const RULE_SYNC_TOKEN_KEY = 'dispatchRuleSyncGithubToken';
+  const RULE_SYNC_REPO_OWNER = 'Shao-Changning';
+  const RULE_SYNC_REPO_NAME = 'seq-dispatch-offline-tool';
+  const RULE_SYNC_REPO_BRANCH = 'main';
+  const RULE_SYNC_REPO_PATH = 'shared-rules.json';
 
   const RULE_FIELDS = [
     { key: 'vendorLibType', label: '文库类型(工厂)' },
@@ -109,13 +114,18 @@
     rules: {},
     sharedRules: {},
     localRules: {},
+    sync: {
+      inFlight: false,
+      pending: null
+    },
     templateBuffers: {},
     indexKit: {},
     ui: {
       date: '',
       labSiteMode: 'auto',
       labSiteCustom: '',
-      ruleEditUnlocked: false
+      ruleEditUnlocked: false,
+      ruleSyncToken: ''
     }
   };
 
@@ -131,6 +141,11 @@
     templateAutoInput: document.getElementById('templateAutoInput'),
     templateAutoSelect: document.getElementById('templateAutoSelect'),
     templateFolderSelect: document.getElementById('templateFolderSelect'),
+    ruleSyncTokenInput: document.getElementById('ruleSyncTokenInput'),
+    saveRuleSyncTokenBtn: document.getElementById('saveRuleSyncTokenBtn'),
+    clearRuleSyncTokenBtn: document.getElementById('clearRuleSyncTokenBtn'),
+    syncRulesNowBtn: document.getElementById('syncRulesNowBtn'),
+    ruleSyncStatus: document.getElementById('ruleSyncStatus'),
     groupTabs: document.getElementById('groupTabs'),
     groupPanels: document.getElementById('groupPanels'),
     downloadAllBtn: document.getElementById('downloadAllBtn'),
@@ -153,6 +168,8 @@
     state.ui.date = formatDateInput(today);
     elements.sendDateInput.value = state.ui.date;
     state.ui.ruleEditUnlocked = sessionStorage.getItem(RULE_EDIT_UNLOCK_KEY) === '1';
+    state.ui.ruleSyncToken = loadRuleSyncToken();
+    setupRuleSyncControls();
 
     elements.sendDateInput.addEventListener('change', () => {
       state.ui.date = elements.sendDateInput.value;
@@ -188,6 +205,9 @@
     elements.importRulesInput.addEventListener('change', handleImportRules);
 
     await hydrateRules();
+    if (state.ui.ruleSyncToken && Object.keys(state.localRules || {}).length) {
+      queueRulesCloudSync('初始化本地规则同步', { silentToast: true });
+    }
     await loadTemplatesFromCache();
     await loadTemplates();
     renderTemplateStatus();
@@ -261,6 +281,43 @@
       const files = Array.from(event.dataTransfer.files || []);
       handleTemplateFiles(files);
     });
+  }
+
+  function setupRuleSyncControls() {
+    renderRuleSyncStatus();
+    if (elements.ruleSyncTokenInput) {
+      elements.ruleSyncTokenInput.value = state.ui.ruleSyncToken || '';
+    }
+    if (elements.saveRuleSyncTokenBtn) {
+      elements.saveRuleSyncTokenBtn.addEventListener('click', () => {
+        const token = (elements.ruleSyncTokenInput && elements.ruleSyncTokenInput.value.trim()) || '';
+        if (!token) {
+          toast('请先输入 GitHub Token');
+          return;
+        }
+        state.ui.ruleSyncToken = token;
+        localStorage.setItem(RULE_SYNC_TOKEN_KEY, token);
+        renderRuleSyncStatus('ok', '云同步令牌已保存');
+        toast('云同步令牌已保存');
+        if (Object.keys(state.localRules || {}).length) {
+          queueRulesCloudSync('初始化本地规则同步', { silentToast: true });
+        }
+      });
+    }
+    if (elements.clearRuleSyncTokenBtn) {
+      elements.clearRuleSyncTokenBtn.addEventListener('click', () => {
+        state.ui.ruleSyncToken = '';
+        localStorage.removeItem(RULE_SYNC_TOKEN_KEY);
+        if (elements.ruleSyncTokenInput) elements.ruleSyncTokenInput.value = '';
+        renderRuleSyncStatus();
+        toast('云同步令牌已清除');
+      });
+    }
+    if (elements.syncRulesNowBtn) {
+      elements.syncRulesNowBtn.addEventListener('click', () => {
+        queueRulesCloudSync('手动同步');
+      });
+    }
   }
 
   async function handleTemplateUpload(key, files) {
@@ -1242,6 +1299,7 @@
     state.localRules[key] = rule;
     mergeRules();
     saveRules();
+    if (!options.skipCloudSync) queueRulesCloudSync('规则修改', { silentToast: true });
     return true;
   }
 
@@ -1291,6 +1349,169 @@
     }
     SHARED_RULES_FALLBACK_URLS.forEach((url) => urls.push(url));
     return Array.from(new Set(urls));
+  }
+
+  function loadRuleSyncToken() {
+    try {
+      return localStorage.getItem(RULE_SYNC_TOKEN_KEY) || '';
+    } catch (err) {
+      return '';
+    }
+  }
+
+  function renderRuleSyncStatus(level, message) {
+    if (!elements.ruleSyncStatus) return;
+    const tokenReady = Boolean(state.ui.ruleSyncToken);
+    const defaultText = tokenReady
+      ? '云同步已配置，规则保存后会自动同步到线上。'
+      : '未配置云同步令牌（当前仍是本机规则保存）。';
+    elements.ruleSyncStatus.textContent = message || defaultText;
+    elements.ruleSyncStatus.classList.remove('sync-ok', 'sync-syncing', 'sync-error');
+    if (!message || !level) return;
+    if (level === 'ok') elements.ruleSyncStatus.classList.add('sync-ok');
+    if (level === 'syncing') elements.ruleSyncStatus.classList.add('sync-syncing');
+    if (level === 'error') elements.ruleSyncStatus.classList.add('sync-error');
+  }
+
+  function queueRulesCloudSync(reason, options = {}) {
+    if (!state.ui.ruleSyncToken) {
+      if (!options.silentToast) toast('未配置云同步令牌，当前修改仅保存在本机');
+      renderRuleSyncStatus();
+      return;
+    }
+    if (state.sync.inFlight) {
+      state.sync.pending = { reason, options };
+      return;
+    }
+    void flushRulesCloudSync(reason, options);
+  }
+
+  async function flushRulesCloudSync(reason, options = {}) {
+    if (!state.ui.ruleSyncToken) return;
+    state.sync.inFlight = true;
+    renderRuleSyncStatus('syncing', `规则同步中：${reason || '更新'}`);
+    try {
+      const list = Object.values(state.rules || {});
+      await pushRulesToGithub(list, reason || '规则更新');
+      state.sharedRules = parseRulesToMap(list);
+      state.localRules = {};
+      mergeRules();
+      saveRules();
+      renderRuleSyncStatus('ok', `已同步 ${new Date().toLocaleString('zh-CN')}`);
+      if (!options.silentToast) toast('规则已同步到云端');
+    } catch (err) {
+      console.error(err);
+      const msg = err && err.message ? err.message : '未知错误';
+      renderRuleSyncStatus('error', `规则同步失败：${msg}`);
+      if (!options.silentToast) toast(`规则云同步失败：${msg}`);
+    } finally {
+      state.sync.inFlight = false;
+      if (state.sync.pending) {
+        const pending = state.sync.pending;
+        state.sync.pending = null;
+        void flushRulesCloudSync(pending.reason, pending.options || {});
+      }
+    }
+  }
+
+  async function pushRulesToGithub(ruleList, reason) {
+    const token = state.ui.ruleSyncToken;
+    if (!token) throw new Error('未配置 GitHub Token');
+
+    const apiUrl = `https://api.github.com/repos/${RULE_SYNC_REPO_OWNER}/${RULE_SYNC_REPO_NAME}/contents/${RULE_SYNC_REPO_PATH}`;
+    const content = `${JSON.stringify(ruleList || [], null, 2)}\n`;
+    const payload = toBase64Utf8(content);
+    const message = `chore: sync rules (${reason || 'update'})`;
+
+    let sha = null;
+    try {
+      const metaResp = await fetch(apiUrl, {
+        method: 'GET',
+        headers: buildGithubHeaders(token),
+        cache: 'no-store'
+      });
+      if (metaResp.status !== 404) {
+        const metaData = await parseGithubResponse(metaResp);
+        sha = metaData.sha || null;
+        const remoteContent = String(metaData.content || '').replace(/\s+/g, '');
+        if (remoteContent && remoteContent === payload) {
+          return;
+        }
+      }
+    } catch (err) {
+      throw new Error(`读取线上规则失败：${err.message || err}`);
+    }
+
+    await putGithubFile(apiUrl, token, payload, message, sha);
+  }
+
+  async function putGithubFile(apiUrl, token, base64Content, message, sha) {
+    const body = {
+      message,
+      content: base64Content,
+      branch: RULE_SYNC_REPO_BRANCH
+    };
+    if (sha) body.sha = sha;
+
+    let response = await fetch(apiUrl, {
+      method: 'PUT',
+      headers: {
+        ...buildGithubHeaders(token),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (response.status === 409) {
+      const latest = await fetch(apiUrl, {
+        method: 'GET',
+        headers: buildGithubHeaders(token),
+        cache: 'no-store'
+      });
+      const latestData = await parseGithubResponse(latest);
+      body.sha = latestData.sha;
+      response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: {
+          ...buildGithubHeaders(token),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+    }
+
+    await parseGithubResponse(response);
+  }
+
+  function buildGithubHeaders(token) {
+    return {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28'
+    };
+  }
+
+  async function parseGithubResponse(response) {
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (err) {
+      data = null;
+    }
+    if (!response.ok) {
+      const msg = data && data.message ? data.message : `HTTP ${response.status}`;
+      throw new Error(msg);
+    }
+    return data || {};
+  }
+
+  function toBase64Utf8(text) {
+    const bytes = new TextEncoder().encode(String(text || ''));
+    let binary = '';
+    bytes.forEach((b) => {
+      binary += String.fromCharCode(b);
+    });
+    return btoa(binary);
   }
 
   function parseRulesToMap(rawOrParsed) {
@@ -1345,6 +1566,7 @@
       saveRules();
       renderGroups();
       toast('规则已导入（当前浏览器）');
+      queueRulesCloudSync('规则导入');
     } catch (err) {
       toast('规则 JSON 解析失败');
     } finally {

@@ -212,6 +212,29 @@ body::before {
   gap: 10px;
 }
 
+.sync-inline {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.sync-inline input {
+  min-width: 0;
+}
+
+#ruleSyncStatus.sync-ok {
+  color: #1f6f5c;
+}
+
+#ruleSyncStatus.sync-syncing {
+  color: #a0511a;
+}
+
+#ruleSyncStatus.sync-error {
+  color: #b42318;
+}
+
 .helper {
   color: var(--muted);
   font-size: 12px;
@@ -607,6 +630,10 @@ button.primary {
   }
 
   .inline {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-inline {
     grid-template-columns: 1fr;
   }
 

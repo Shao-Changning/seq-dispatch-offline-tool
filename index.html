@@ -63,6 +63,16 @@
         <details class="template-manage">
           <summary>模板资源管理（默认隐藏）</summary>
           <div class="field">
+            <label>规则云同步（全员共享）</label>
+            <div class="sync-inline">
+              <input id="ruleSyncTokenInput" type="password" placeholder="输入 GitHub Token（需 repo 权限）" />
+              <button id="saveRuleSyncTokenBtn" type="button">保存令牌</button>
+              <button id="clearRuleSyncTokenBtn" type="button">清除令牌</button>
+              <button id="syncRulesNowBtn" type="button">立即同步</button>
+            </div>
+            <div id="ruleSyncStatus" class="helper">未配置云同步令牌（当前仍是本机规则保存）。</div>
+          </div>
+          <div class="field">
             <label>模板加载状态</label>
             <div id="templateStatus" class="template-status"></div>
           </div>
