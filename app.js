@@ -1308,8 +1308,14 @@
   }
 
   async function hydrateRules() {
-    state.localRules = loadLocalRules();
+    const localRules = loadLocalRules();
     state.sharedRules = await loadSharedRules();
+    if (Object.keys(state.sharedRules || {}).length) {
+      state.localRules = {};
+      saveRules();
+    } else {
+      state.localRules = localRules;
+    }
     mergeRules();
   }
 
